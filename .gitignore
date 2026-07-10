@@ -1,0 +1,4 @@
+# Local build artifacts
+*.pyc
+__pycache__/
+.DS_Store

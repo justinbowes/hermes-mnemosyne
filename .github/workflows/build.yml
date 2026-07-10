@@ -1,0 +1,120 @@
+name: Build and publish hermes-mnemosyne
+
+# Builds the thin derived image (Hermes + Mnemosyne) and publishes it to
+# GHCR at ghcr.io/<owner>/hermes-mnemosyne. Uses the workflow's built-in
+# GITHUB_TOKEN, which is granted `packages: write` below — this works even
+# though the maintainer's personal PAT lacks write:packages.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "plugins/**"
+      - ".github/workflows/build.yml"
+      - "MNEMOSYNE_VERSION"
+      - "HERMES_BASE_TAG"
+  workflow_dispatch:
+    inputs:
+      hermes_base_tag:
+        description: "Upstream nousresearch/hermes-agent tag to build FROM"
+        required: false
+        default: ""
+      mnemosyne_version:
+        description: "mnemosyne-memory version to pin"
+        required: false
+        default: ""
+  # Weekly rebuild so a freshly-pinned base + mnemosyne get security refreshes
+  # even without a code change. Comment out if you prefer fully manual control.
+  schedule:
+    - cron: "017 9 * * 1"
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write   # <-- lets GITHUB_TOKEN push to GHCR
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/hermes-mnemosyne
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Resolve build args: workflow_dispatch inputs override the pinned files,
+      # which override the Dockerfile ARG defaults.
+      - name: Resolve build args
+        id: args
+        run: |
+          base_tag="${{ github.event.inputs.hermes_base_tag }}"
+          mnemo_ver="${{ github.event.inputs.mnemosyne_version }}"
+          if [ -z "$base_tag" ] && [ -f HERMES_BASE_TAG ]; then
+            base_tag="$(tr -d ' \n' < HERMES_BASE_TAG)"
+          fi
+          if [ -z "$mnemo_ver" ] && [ -f MNEMOSYNE_VERSION ]; then
+            mnemo_ver="$(tr -d ' \n' < MNEMOSYNE_VERSION)"
+          fi
+          echo "base_tag=${base_tag}" >> "$GITHUB_OUTPUT"
+          echo "mnemo_ver=${mnemo_ver}" >> "$GITHUB_OUTPUT"
+          echo "Resolved base_tag='${base_tag}' mnemo_ver='${mnemo_ver}'"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Derive image tags: a stable moving tag per base version + an immutable
+      # tag tying the derived image to the exact base tag + short git sha.
+      - name: Compute tags
+        id: tags
+        run: |
+          base="${{ steps.args.outputs.base_tag }}"
+          sha="${GITHUB_SHA::7}"
+          tags="${IMAGE}:latest"
+          if [ -n "$base" ]; then
+            tags="${tags},${IMAGE}:${base},${IMAGE}:${base}-${sha}"
+          else
+            tags="${tags},${IMAGE}:${sha}"
+          fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "Tags: ${tags}"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            ${{ steps.args.outputs.base_tag && format('HERMES_BASE_TAG={0}', steps.args.outputs.base_tag) || '' }}
+            ${{ steps.args.outputs.mnemo_ver && format('MNEMOSYNE_VERSION={0}', steps.args.outputs.mnemo_ver) || '' }}
+          provenance: false
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published hermes-mnemosyne"
+            echo ""
+            echo "- Base: \`nousresearch/hermes-agent:${{ steps.args.outputs.base_tag }}\`"
+            echo "- Mnemosyne: \`${{ steps.args.outputs.mnemo_ver }}\`"
+            echo "- Tags:"
+            echo '```'
+            echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
