@@ -1,0 +1,111 @@
+name: Check for upstream Hermes release
+
+# Detects new upstream nousresearch/hermes-agent tags and opens a PR to
+# bump HERMES_BASE_TAG. Runs daily and on manual dispatch.
+# This replaces the previous "rebuild same pin weekly" schedule with actual
+# upstream-tracking: the pin only advances when a new tag appears, and the
+# advance comes as a reviewable PR rather than a silent rebuild.
+
+on:
+  schedule:
+    - cron: "30 10 * * *"   # daily at 10:30 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read current pin
+        id: current
+        run: |
+          current="$(tr -d ' \n' < HERMES_BASE_TAG)"
+          echo "tag=${current}" >> "$GITHUB_OUTPUT"
+          echo "Current pin: ${current}"
+
+      - name: Fetch latest upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest=$(gh api repos/NousResearch/hermes-agent/releases/latest --jq '.tag_name')
+          echo "tag=${latest}" >> "$GITHUB_OUTPUT"
+          echo "Latest upstream: ${latest}"
+
+      - name: Compare and create PR
+        if: steps.current.outputs.tag != steps.upstream.outputs.tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT: ${{ steps.current.outputs.tag }}
+          LATEST: ${{ steps.upstream.outputs.tag }}
+        run: |
+          branch="auto/bump-hermes-base-${LATEST}"
+
+          # Bail if a PR for this tag already exists
+          existing=$(gh pr list --head "$branch" --json number --jq 'length')
+          if [ "$existing" -gt 0 ]; then
+            echo "PR already exists for ${LATEST}, skipping."
+            exit 0
+          fi
+
+          # Fetch release info for the PR body
+          release_name=$(gh api "repos/NousResearch/hermes-agent/releases/tags/${LATEST}" --jq '.name // .tag_name')
+          release_url="https://github.com/NousResearch/hermes-agent/releases/tag/${LATEST}"
+          compare_url="https://github.com/NousResearch/hermes-agent/compare/${CURRENT}...${LATEST}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$branch"
+          echo "$LATEST" > HERMES_BASE_TAG
+          git add HERMES_BASE_TAG
+          git commit -m "chore: bump HERMES_BASE_TAG to ${LATEST}
+
+Automated bump from ${CURRENT} to ${LATEST}.
+Release: ${release_name}
+Upstream: ${release_url}"
+
+          git push -u origin "$branch"
+
+          gh pr create \
+            --title "chore: bump Hermes base to ${LATEST} (${release_name})" \
+            --body "## Automated upstream update
+
+A new upstream Hermes Agent release is available.
+
+| | |
+|---|---|
+| **Current pin** | \`${CURRENT}\` |
+| **New release** | [\`${LATEST}\`](${release_url}) — ${release_name} |
+| **Changelog** | [${CURRENT}...${LATEST}](${compare_url}) |
+
+### What this PR does
+
+Bumps \`HERMES_BASE_TAG\` from \`${CURRENT}\` to \`${LATEST}\`. The CI workflow
+will build the updated \`hermes-mnemosyne\` image against the new base.
+
+### Before merging
+
+- [ ] Review the [upstream changelog](${compare_url}) for breaking changes
+- [ ] Verify the CI build succeeds (Mnemosyne provider loads on the new base)
+- [ ] Check whether the SimpleX hotfix layer still applies cleanly to the new base
+- [ ] Consider bumping \`MNEMOSYNE_VERSION\` if a newer release is available
+
+### Deployment
+
+After merge, CI publishes to \`ghcr.io/justinbowes/hermes-mnemosyne:${LATEST}\`.
+The simplex-hotfix layer must be rebuilt on top of the new tag:
+\`\`\`bash
+cd /opt/data/hermes-mnemosyne-simplex-hotfix
+# Update FROM line if needed, then:
+docker build -t ghcr.io/justinbowes/hermes-mnemosyne:simplex-hotfix-\$(date +%Y%m%d) .
+\`\`\`
+" \
+            --label "dependencies"
