@@ -1,0 +1,62 @@
+name: Validate PR
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "plugins/**"
+      - "assertions/**"
+      - "MNEMOSYNE_VERSION"
+      - "HERMES_BASE_TAG"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve build args
+        id: args
+        run: |
+          base_tag=""
+          mnemo_ver=""
+          if [ -f HERMES_BASE_TAG ]; then
+            base_tag="$(tr -d ' \n' < HERMES_BASE_TAG)"
+          fi
+          if [ -f MNEMOSYNE_VERSION ]; then
+            mnemo_ver="$(tr -d ' \n' < MNEMOSYNE_VERSION)"
+          fi
+          echo "base_tag=${base_tag}" >> "$GITHUB_OUTPUT"
+          echo "mnemo_ver=${mnemo_ver}" >> "$GITHUB_OUTPUT"
+          echo "Building with base_tag='${base_tag}' mnemo_ver='${mnemo_ver}'"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build without pushing — validates Dockerfile, installs, and all
+      # build-time assertions pass against the proposed base tag.
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          build-args: |
+            ${{ steps.args.outputs.base_tag && format('HERMES_BASE_TAG={0}', steps.args.outputs.base_tag) || '' }}
+            ${{ steps.args.outputs.mnemo_ver && format('MNEMOSYNE_VERSION={0}', steps.args.outputs.mnemo_ver) || '' }}
+          provenance: false
+
+      - name: Summary
+        run: |
+          {
+            echo "### PR validation passed"
+            echo ""
+            echo "- Base: \`nousresearch/hermes-agent:${{ steps.args.outputs.base_tag }}\`"
+            echo "- Mnemosyne: \`${{ steps.args.outputs.mnemo_ver }}\`"
+            echo "- All build-time assertions passed (Mnemosyne provider, dashboard fix, version floor)"
+          } >> "$GITHUB_STEP_SUMMARY"
