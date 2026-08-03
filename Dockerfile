@@ -12,11 +12,11 @@
 # against whatever Python the base ships, every build. It is a first-class
 # image dependency, immune to the ABI-wipe footgun.
 
-ARG HERMES_BASE_TAG=v2026.7.7.2
+ARG HERMES_BASE_TAG=v2026.7.30
 FROM nousresearch/hermes-agent:${HERMES_BASE_TAG}
 
 # Pin the mnemosyne version for reproducible images (NOT floating latest).
-ARG MNEMOSYNE_VERSION=3.11.1
+ARG MNEMOSYNE_VERSION=3.15.1
 
 # The base image ships uv at /usr/local/bin/uv and the app venv at
 # /opt/hermes/.venv. Install into that venv so `hermes` (which runs on that
@@ -35,6 +35,7 @@ RUN /usr/local/bin/uv pip install \
 # symlink in the persistent $HERMES_HOME/plugins dir. Bundled providers take
 # precedence and are always present in the image.
 COPY plugins/memory/mnemosyne/ /opt/hermes/plugins/memory/mnemosyne/
+COPY assertions/ /opt/hermes/assertions/
 
 # Build-time sanity: the loader must classify + load the provider and report it
 # available. Fails the build early if the integration is broken, so a bad image
@@ -47,6 +48,14 @@ assert avail.get('mnemosyne') is True, f'mnemosyne not available: {avail}'; \
 p = load_memory_provider('mnemosyne'); \
 assert p is not None and p.name == 'mnemosyne' and p.is_available(), 'provider load failed'; \
 print('OK: mnemosyne bundled provider discovered + available')"
+
+# 2. Dashboard env-reveal fix (upstream issue #55210): the compiled SPA must
+#    not use the pre-fix getSessionToken() pattern before /api/env/reveal.
+RUN /opt/hermes/.venv/bin/python /opt/hermes/assertions/check_dashboard_fix.py
+
+# 3. Hermes version sanity: base must be >= 0.19.0 (covers dashboard auth fix,
+#    SimpleX structured /_send, ~80% cold-start speedup, and 3300+ issues closed).
+RUN /opt/hermes/.venv/bin/python /opt/hermes/assertions/check_hermes_version.py
 
 # Record provenance in image labels.
 LABEL org.opencontainers.image.title="hermes-mnemosyne" \
