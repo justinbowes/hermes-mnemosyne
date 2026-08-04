@@ -68,9 +68,9 @@ jobs:
           git add HERMES_BASE_TAG
           git commit -m "chore: bump HERMES_BASE_TAG to ${LATEST}
 
-Automated bump from ${CURRENT} to ${LATEST}.
-Release: ${release_name}
-Upstream: ${release_url}"
+          Automated bump from ${CURRENT} to ${LATEST}.
+          Release: ${release_name}
+          Upstream: ${release_url}"
 
           git push -u origin "$branch"
 
@@ -78,34 +78,34 @@ Upstream: ${release_url}"
             --title "chore: bump Hermes base to ${LATEST} (${release_name})" \
             --body "## Automated upstream update
 
-A new upstream Hermes Agent release is available.
-
-| | |
-|---|---|
-| **Current pin** | \`${CURRENT}\` |
-| **New release** | [\`${LATEST}\`](${release_url}) — ${release_name} |
-| **Changelog** | [${CURRENT}...${LATEST}](${compare_url}) |
-
-### What this PR does
-
-Bumps \`HERMES_BASE_TAG\` from \`${CURRENT}\` to \`${LATEST}\`. The CI workflow
-will build the updated \`hermes-mnemosyne\` image against the new base.
-
-### Before merging
-
-- [ ] Review the [upstream changelog](${compare_url}) for breaking changes
-- [ ] Verify the CI build succeeds (Mnemosyne provider loads on the new base)
-- [ ] Check whether the SimpleX hotfix layer still applies cleanly to the new base
-- [ ] Consider bumping \`MNEMOSYNE_VERSION\` if a newer release is available
-
-### Deployment
-
-After merge, CI publishes to \`ghcr.io/justinbowes/hermes-mnemosyne:${LATEST}\`.
-The simplex-hotfix layer must be rebuilt on top of the new tag:
-\`\`\`bash
-cd /opt/data/hermes-mnemosyne-simplex-hotfix
-# Update FROM line if needed, then:
-docker build -t ghcr.io/justinbowes/hermes-mnemosyne:simplex-hotfix-\$(date +%Y%m%d) .
-\`\`\`
-" \
+          A new upstream Hermes Agent release is available.
+          
+          | | |
+          |---|---|
+          | **Current pin** | \`${CURRENT}\` |
+          | **New release** | [\`${LATEST}\`](${release_url}) — ${release_name} |
+          | **Changelog** | [${CURRENT}...${LATEST}](${compare_url}) |
+          
+          ### What this PR does
+          
+          Bumps \`HERMES_BASE_TAG\` from \`${CURRENT}\` to \`${LATEST}\`. The CI workflow
+          will build the updated \`hermes-mnemosyne\` image against the new base.
+          
+          ### Before merging
+          
+          - [ ] Review the [upstream changelog](${compare_url}) for breaking changes
+          - [ ] Verify the CI build succeeds (Mnemosyne provider loads on the new base)
+          - [ ] Check whether the SimpleX hotfix layer still applies cleanly to the new base
+          - [ ] Consider bumping \`MNEMOSYNE_VERSION\` if a newer release is available
+          
+          ### Deployment
+          
+          After merge, CI publishes to \`ghcr.io/justinbowes/hermes-mnemosyne:${LATEST}\`.
+          The simplex-hotfix layer must be rebuilt on top of the new tag:
+          \`\`\`bash
+          cd /opt/data/hermes-mnemosyne-simplex-hotfix
+          # Update FROM line if needed, then:
+          docker build -t ghcr.io/justinbowes/hermes-mnemosyne:simplex-hotfix-\$(date +%Y%m%d) .
+          \`\`\`
+          " \
             --label "dependencies"
