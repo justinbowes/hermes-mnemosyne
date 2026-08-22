@@ -24,11 +24,22 @@ ARG MNEMOSYNE_VERSION=3.15.1
 # --system-site-packages is NOT needed; --python targets the venv directly.
 # Root layer: site-packages is root-owned in the base image, which is correct
 # for a baked dependency (unlike the writable-at-runtime lazy dir).
+# The [embeddings] extra is REQUIRED for semantic recall: it pulls fastembed
+# (the local ONNX embedder) + sqlite-vec (the vector index). WITHOUT it,
+# mnemosyne.core.embeddings.embed() returns None, ZERO vectors are ever written,
+# and recall silently degrades to keyword(FTS)-only — RAG appears "installed"
+# but never actually works. (Diagnosed 2026-08-22: this exact omission meant
+# semantic recall had never functioned in the deployment.)
 RUN /usr/local/bin/uv pip install \
         --python /opt/hermes/.venv/bin/python \
         --no-cache-dir \
-        "mnemosyne-memory==${MNEMOSYNE_VERSION}" \
-    && /opt/hermes/.venv/bin/python -c "import mnemosyne, hermes_memory_provider; print('mnemosyne', mnemosyne.__version__)"
+        "mnemosyne-memory[embeddings]==${MNEMOSYNE_VERSION}" \
+    && /opt/hermes/.venv/bin/python -c "import mnemosyne, hermes_memory_provider; print('mnemosyne', mnemosyne.__version__)" \
+    && /opt/hermes/.venv/bin/python -c "\
+from mnemosyne.core import embeddings as e; \
+import sqlite_vec; \
+assert e.available(), 'fastembed embedder NOT available — [embeddings] extra missing or broken'; \
+print('OK: embeddings backend available (fastembed + sqlite-vec present)')"
 
 # Drop the bundled provider shim so Hermes discovers Mnemosyne as a first-class
 # BUNDLED provider (plugins/memory/mnemosyne/) — no dependency on a runtime

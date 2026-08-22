@@ -6,7 +6,7 @@ provider baked in.
 
 ```
 FROM nousresearch/hermes-agent:<pinned>   # official published image
-RUN uv pip install mnemosyne-memory==<pinned>
+RUN uv pip install mnemosyne-memory[embeddings]==<pinned>   # [embeddings] = fastembed + sqlite-vec (semantic recall)
 COPY plugins/memory/mnemosyne/ ...        # bundled provider shim
 ```
 
